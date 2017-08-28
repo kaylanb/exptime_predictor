@@ -4,6 +4,7 @@ import pandas as pd
 import sqlite3
 import time
 from datetime import date, timedelta
+from astropy.time import Time
 
 from obiwan.common import save_png,dobash
 
@@ -69,28 +70,33 @@ class Data(object):
     return self.Sql.pandas_fetchall(fn,
                                     "select * from obsdb_measuredccd")
 
-def get_next_day(ymd):
-  """given year month day string (ymd) return next calendar day
+def change_day(ymd,new_day):
+  """given year month day string (ymd) returns the previous or next calendar day
   
   Args:
       ymd: '20110531'
+      new_day: ['yesterday','tomorrow']
       
   Returns:
       ymd for next day: '20110601' for example above
   """
-  t=time.strptime('20110531','%Y%m%d')
-  newdate=date(t.tm_year,t.tm_mon,t.tm_mday)+timedelta(1)
+  assert(new_day in ['yesterday','tomorrow'])
+  t=time.strptime(ymd,'%Y%m%d')
+  dt= timedelta(days=1)
+  if new_day == 'yesterday':
+    newdate=date(t.tm_year,t.tm_mon,t.tm_mday) - dt
+  elif new_day == 'tomorrow':
+    newdate=date(t.tm_year,t.tm_mon,t.tm_mday) + dt
   return newdate.strftime('%Y%m%d')
 
+
 class Clean(object):
-  def drop_nonreal_exposures(self,df):
-    """remove flats, bias, other non-science exposures"""
+  def keep_science_exposures(self,df):
+    """Only exposures named 'object' and band in grz are science exposures"""
     bands= df.loc[:,'band']
-    df= df[(bands == 'g') |
-           (bands == 'r') | 
-           (bands == 'z') ]
-    df= df[(df.loc[:,'obstype'] == 'object')]
-    return df
+    isGRZ= (bands == 'g') | (bands == 'r') | (bands == 'z') 
+    isObject= df.loc[:,'obstype'] == 'object'
+    return df[ isGRZ & isObject ]
    
   def add_night_obs(self,df):
     """assigns integer ymd to each instance
@@ -122,19 +128,39 @@ class Clean(object):
           night_arr[keep]= night
     return df.assign(night_obs= night_arr)
 
-  def thresh_exp_per_night(self,df, nexp=20):
-    """keep data from night IFF has more than thresh number of good exposures"""
-    keep= np.ones(len(df))
-    for night in set(df.loc[:,'night_obs'].values):
-      ind= np.where(df.loc[:,'night_obs'] == night)[0]
-      if len(ind) < nexp:
-        keep[ind]= False
-    return df[keep]
-     
-  def drop_bad_transp(self,df, thresh=0.9):
-    """drop low transp exposures for now"""
-    df= df[(df.loc[:,'transparency'] > thresh)]
+  def add_night_obs(self,df):
+    """assigns integer ymd to each instance
+
+    Night observed begins in evening and continutes to morning of next
+      day. Found that float hrminsec = 150000.0 cleanly separates morning
+      from evening
+
+    Returns:
+      df modified to have 'night_obs' and 'hr_obs' columns
+    """
+    t = Time(df.loc[:,'mjd_obs'], format='mjd')
+    # t.iso is list of elements like '2016-02-25 05:11:31.769'
+    nightobs_str= np.array([a.split(' ')[0] for a in t.iso])
+    nightobs_str= np.char.replace(nightobs_str,'-','') # ymd
+    hr_str= np.array([a.split(' ')[1] for a in t.iso])
+    hr= np.char.replace(hr_str,':','').astype(float) # float hrminsec
+    # All mornings need to be relabeled as previous calendar day
+    hr_thresh= 150000.
+    isMorning= hr < hr_thresh
+    for ymd in list(set(nightobs_str)):
+      # relabel the mornings 
+      nightobs_str[ (nightobs_str == ymd) & (isMorning) ]= change_day(ymd,'yesterday')
+    df= df.assign(night_obs= nightobs_str.astype(int))
+    df= df.assign(hr_obs= hr)
     return df
+
+  def drop_nights_wfew_exposures(self,df, nexp=20):
+    """Return df with all nights with less than nexp dropped"""
+    return df.groupby("night_obs").filter(lambda g: g.night_obs.size >= nexp)
+    
+  def drop_bad_transp(self,df, thresh=0.9):
+    """drop low transp exposures"""
+    return df[ df.loc[:,'transparency'] > thresh ]
 
    
 
@@ -143,12 +169,12 @@ if __name__ == '__main__':
   d.fetch_data()
   df = d.load_data()
 
-  df= Clean().drop_nonreal_exposures()
-  # FIX!! 20k occurences of night_obs == -1 (overwhelming majority)
+  df= Clean().keep_science_exposures(df)
   df= Clean().add_night_obs(df)
-  # Don't do the following yet
-  #df= Clean().thresh_exp_per_night(df, nexp=20)
-  #df= Clean().drop_bad_transp(df, thresh=0.9)
+  df= Clean().drop_bad_transp(df, thresh=0.9)
+  # TODO: remove duplicated expids b/c have > 1000 exposures on some nights
+  # ALWAYS last step
+  df= Clean().drop_nights_wfew_exposures(df, nexp=20)
   raise ValueError
 
 
