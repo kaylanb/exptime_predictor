@@ -199,7 +199,7 @@ class Split_TrainTest(object):
     i_nights= np.arange(len(all_nights))
     np.random.shuffle(i_nights)
     ihalf= len(all_nights)//2
-    i_nights_train,i_nights_test= i_nights[:ihalf], ind_nights[ihalf:]
+    i_nights_train,i_nights_test= i_nights[:ihalf], i_nights[ihalf:]
     # select all instances of these nights
     keep_train,keep_test= np.zeros(len(df),bool),np.zeros(len(df),bool)
     for i in i_nights_train:
@@ -207,7 +207,23 @@ class Split_TrainTest(object):
     for i in i_nights_test:
         keep_test[ df['night_obs'] == all_nights[i]]=True
     return df.loc[keep_train], df.loc[keep_test] 
-   
+
+class PrepForML(object):
+  def drop_unneeded_cols(self,df):
+    """necessary cleaning"""
+    zero_arrs= ['bad_pixcnt','readtime']
+    noinfo= ['id','filename','extension',
+             'camera','md5sum','obstype']
+    cols= zero_arrs + noinfo
+    return df.drop(cols,axis=1)
+
+  def drop_optional_cols(self,df):
+    """optional cleaning"""
+    # correclation coeff with tneed < 0.01
+    cols= ['mjd_obs','transparency','expnum']
+    return df.drop(cols,axis=1)
+
+
 
 if __name__ == '__main__':
   d= Data(REPO_DIR)
@@ -223,6 +239,9 @@ if __name__ == '__main__':
 
   df= AddYlabel().use_obsdb_expfactor(df)
   df= AddYlabel().clean(df) 
+
+  df= PrepForML().drop_unneeded_cols(df)
+  df= PrepForML().drop_optional_cols(df)
 
   df_train,df_test= Split_TrainTest().random_sampling(df)
   raise ValueError
