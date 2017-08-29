@@ -61,6 +61,7 @@ class Data(object):
     curr_path = os.getcwd()
     os.chdir( os.path.join(self.repo_dir, 'obsbot'))
     dobash('git pull origin master')
+    dobash('git checkout 84d63bb9aa33')
     os.chdir( curr_path)
 
   def load_data(self):
@@ -162,6 +163,50 @@ class Clean(object):
     """drop low transp exposures"""
     return df[ df.loc[:,'transparency'] > thresh ]
 
+class LegacyZptData(object):
+  """Fetches and loads legacy zeropoints exposure time needed data
+  """
+  pass
+
+class AddYlabel(object):
+  """Adds 'tneed' to training data, the needed exposure time we are trying to predict
+  """
+  def use_obsdb_expfactor(self,df):
+    """uses expfactor in obsdb db which is VERY ROUGH approx"""
+    t0= dict(g=70,r=50,z=100)
+    tneed_arr= np.zeros(len(df))-1 
+    for band in t0.keys():
+        isBand= df['band'] == band
+        tneed_arr[isBand]= df['expfactor'][isBand] * t0[band]
+    assert( np.all(tneed_arr > 0))
+    return df.assign(tneed= tneed_arr)
+
+  def clean(self,df):
+    """applies cleaning to ylabel"""
+    return df[(df['tneed'] > 10) & \
+              (df['tneed'] < 500)]
+ 
+
+class Split_TrainTest(object):
+  def random_sampling(self,df,seed=7):
+    """create training and test set grouping by night observed and randomly split 50/50
+    
+    Dont split up data from a given night. Group by night observed and split
+    based on that
+    """
+    np.random.seed(seed)
+    all_nights= list( set(df['night_obs']) )
+    i_nights= np.arange(len(all_nights))
+    np.random.shuffle(i_nights)
+    ihalf= len(all_nights)//2
+    i_nights_train,i_nights_test= i_nights[:ihalf], ind_nights[ihalf:]
+    # select all instances of these nights
+    keep_train,keep_test= np.zeros(len(df),bool),np.zeros(len(df),bool)
+    for i in i_nights_train:
+        keep_train[ df['night_obs'] == all_nights[i]]=True
+    for i in i_nights_test:
+        keep_test[ df['night_obs'] == all_nights[i]]=True
+    return df.loc[keep_train], df.loc[keep_test] 
    
 
 if __name__ == '__main__':
@@ -175,6 +220,11 @@ if __name__ == '__main__':
   # TODO: remove duplicated expids b/c have > 1000 exposures on some nights
   # ALWAYS last step
   df= Clean().drop_nights_wfew_exposures(df, nexp=20)
+
+  df= AddYlabel().use_obsdb_expfactor(df)
+  df= AddYlabel().clean(df) 
+
+  df_train,df_test= Split_TrainTest().random_sampling(df)
   raise ValueError
 
 
