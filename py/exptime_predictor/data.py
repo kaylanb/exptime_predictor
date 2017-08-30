@@ -223,9 +223,7 @@ class PrepForML(object):
     cols= ['mjd_obs','transparency','expnum']
     return df.drop(cols,axis=1)
 
-
-
-if __name__ == '__main__':
+def main():
   d= Data(REPO_DIR)
   d.fetch_data()
   df = d.load_data()
@@ -244,6 +242,9 @@ if __name__ == '__main__':
   df= PrepForML().drop_optional_cols(df)
 
   df_train,df_test= Split_TrainTest().random_sampling(df)
-  raise ValueError
+  return df_train
 
+if __name__ == '__main__':
+  df_train = main()
+  
 
