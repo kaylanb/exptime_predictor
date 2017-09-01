@@ -31,6 +31,7 @@ MANIFEST
 # Other
 .*.swp
 *~
+*.png
 
 # Mac OSX
 .DS_Store

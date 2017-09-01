@@ -155,6 +155,21 @@ class Clean(object):
     df= df.assign(hr_obs= hr)
     return df
 
+  def seamless_hr_obs(self,df):
+    """hr_obs has a few issues as returned by add_night_obs(), fix these things
+    
+    That evenings exposures should occur before the following mornings exposures. 
+      There is a 12 hr gap between them about 150000. Also hr_obs should be 
+      1 for 1 hr after midnight, not 10000
+    """
+    # Evening occurs before mornins 
+    hr_thresh= 150000.
+    isEvening= df.loc[:,'hr_obs'] > hr_thresh
+    df.loc[isEvening,'hr_obs']= df.loc[isEvening,'hr_obs'] - 240000.
+    # Units hrs
+    df.loc[:,'hr_obs']= df.loc[:,'hr_obs']/10000 
+    return df
+
   def drop_nights_wfew_exposures(self,df, nexp=20):
     """Return df with all nights with less than nexp dropped"""
     return df.groupby("night_obs").filter(lambda g: g.night_obs.size >= nexp)
@@ -208,28 +223,15 @@ class Split_TrainTest(object):
         keep_test[ df['night_obs'] == all_nights[i]]=True
     return df.loc[keep_train], df.loc[keep_test] 
 
-class PrepForML(object):
-  def drop_unneeded_cols(self,df):
-    """necessary cleaning"""
-    zero_arrs= ['bad_pixcnt','readtime']
-    noinfo= ['id','filename','extension',
-             'camera','md5sum','obstype']
-    cols= zero_arrs + noinfo
-    return df.drop(cols,axis=1)
-
-  def drop_optional_cols(self,df):
-    """optional cleaning"""
-    # correclation coeff with tneed < 0.01
-    cols= ['mjd_obs','transparency','expnum']
-    return df.drop(cols,axis=1)
-
 def main():
-  d= Data(REPO_DIR)
-  d.fetch_data()
-  df = d.load_data()
+  d= GetData(REPO_DIR)
+  d.fetch()
+  df = d.load()
 
   df= Clean().keep_science_exposures(df)
   df= Clean().add_night_obs(df)
+  df= Clean().seamless_hr_obs(df)
+  raise ValueError('FIX: mjd ordering, seeing notebook')
   df= Clean().drop_bad_transp(df, thresh=0.9)
   # TODO: remove duplicated expids b/c have > 1000 exposures on some nights
   # ALWAYS last step
@@ -237,9 +239,6 @@ def main():
 
   df= AddYlabel().use_obsdb_expfactor(df)
   df= AddYlabel().clean(df) 
-
-  df= PrepForML().drop_unneeded_cols(df)
-  df= PrepForML().drop_optional_cols(df)
 
   df_train,df_test= Split_TrainTest().random_sampling(df)
   return df_train

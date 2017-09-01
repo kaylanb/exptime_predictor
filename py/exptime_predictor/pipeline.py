@@ -42,6 +42,23 @@ class PreProcessor(BaseEstimator, TransformerMixin):
 
 df_train,df_test= Split_TrainTest().random_sampling(df)
 
+class ColumnDropper(object):
+  def unneeded(self,df):
+    """necessary cleaning"""
+    zero_arrs= ['bad_pixcnt','readtime']
+    noinfo= ['id','filename','extension',
+             'camera','md5sum','obstype']
+    cols= zero_arrs + noinfo
+    return df.drop(cols,axis=1)
+
+  def optional(self,df):
+    """optional cleaning"""
+    # correclation coeff with tneed < 0.01
+    cols= ['mjd_obs','transparency','expnum']
+    return df.drop(cols,axis=1)
+
+
+
 
 class DataFrameSelector(BaseEstimator, TransformerMixin):
   """Select features for ML and convert DataFrame to np.array
