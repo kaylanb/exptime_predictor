@@ -46,7 +46,7 @@ class SqliteConnection(object):
     conn.close()
     return list_of_tuples
 
-class Data(object):
+class GetData(object):
   """Fetches and loads decam.sqlite3 data as Pandas df
   
   Args:
@@ -57,14 +57,14 @@ class Data(object):
     self.repo_dir= repo_dir
     self.Sql= SqliteConnection()
 
-  def fetch_data(self):
+  def fetch(self):
     curr_path = os.getcwd()
     os.chdir( os.path.join(self.repo_dir, 'obsbot'))
     dobash('git pull origin master')
     dobash('git checkout 84d63bb9aa33')
     os.chdir( curr_path)
 
-  def load_data(self):
+  def load(self):
     """return Pandas DF of sqlite table"""
     fn = os.path.join(self.repo_dir,"obsbot/obsdb",
                       "decam.sqlite3")
