@@ -51,17 +51,20 @@ class GetData(object):
   
   Args:
     repo_dir: path to obsbot repo, eg. $repo_dir/obsbot
+    commit_id: commit id for data version in obsbot repo, 
+      default: Aug 25, 2017
   """
 
-  def __init__(self, repo_dir):
+  def __init__(self, repo_dir, commit_id='84d63bb9aa33b'):
     self.repo_dir= repo_dir
+    self.commit_id= commit_id
     self.Sql= SqliteConnection()
 
   def fetch(self):
     curr_path = os.getcwd()
     os.chdir( os.path.join(self.repo_dir, 'obsbot'))
     dobash('git pull origin master')
-    dobash('git checkout 84d63bb9aa33')
+    dobash('git checkout %s' % self.commit_id)
     os.chdir( curr_path)
 
   def load(self):
@@ -152,28 +155,44 @@ class Clean(object):
       # relabel the mornings 
       nightobs_str[ (nightobs_str == ymd) & (isMorning) ]= change_day(ymd,'yesterday')
     df= df.assign(night_obs= nightobs_str.astype(int))
-    df= df.assign(hr_obs= hr)
+    #df= df.assign(hr_obs= hr)
     return df
 
-  def seamless_hr_obs(self,df):
-    """hr_obs has a few issues as returned by add_night_obs(), fix these things
-    
-    That evenings exposures should occur before the following mornings exposures. 
-      There is a 12 hr gap between them about 150000. Also hr_obs should be 
-      1 for 1 hr after midnight, not 10000
-    """
-    # Evening occurs before mornins 
-    hr_thresh= 150000.
-    isEvening= df.loc[:,'hr_obs'] > hr_thresh
-    df.loc[isEvening,'hr_obs']= df.loc[isEvening,'hr_obs'] - 240000.
-    # Units hrs
-    df.loc[:,'hr_obs']= df.loc[:,'hr_obs']/10000 
+  def order_by_mjd(self,df):
+    return df.sort_values('mjd_obs')
+
+  def hr_obs(self,mjd_one_night):
+    """mjd_one_night: numpy array of one nights mjd_obs values"""
+    mjd= mjd_one_night.copy()
+    mjd -= mjd[0]
+    isEvening= mjd > 1
+    isMorning= isEvening == False
+    if np.any(isEvening):
+        mjd_evening_start= mjd[isEvening].min()
+        mjd_morning_start= mjd[isEvening].max()
+        mjd[isEvening] -=  mjd_evening_start
+        mjd[isMorning] +=  mjd_morning_start - mjd_evening_start
+    # hrs not fraction of day
+    return mjd * 24.
+
+  def add_hr_obs(self,df):
+    hr_obs= np.zeros(len(df))-1
+    for night in set(df['night_obs']):
+        isNight= df['night_obs'] == night
+        hr_obs[isNight]= self.hr_obs(df[isNight]['mjd_obs'].values)
+    assert(not 'hr_obs' in df.columns)
+    assert(np.all(hr_obs >= 0))
+    df['hr_obs']= hr_obs
     return df
 
   def drop_nights_wfew_exposures(self,df, nexp=20):
     """Return df with all nights with less than nexp dropped"""
-    return df.groupby("night_obs").filter(lambda g: g.night_obs.size >= nexp)
-    
+    start=len(df)
+    df= df.groupby("night_obs").filter(lambda g: g.night_obs.size >= nexp)
+    print('Cutting to < %d exposures: %d/%d' %
+          (nexp,len(df),start))
+    return df
+  
   def drop_bad_transp(self,df, thresh=0.9):
     """drop low transp exposures"""
     return df[ df.loc[:,'transparency'] > thresh ]
@@ -186,20 +205,21 @@ class LegacyZptData(object):
 class AddYlabel(object):
   """Adds 'tneed' to training data, the needed exposure time we are trying to predict
   """
-  def use_obsdb_expfactor(self,df):
+  def add_tneed(self,df):
     """uses expfactor in obsdb db which is VERY ROUGH approx"""
     t0= dict(g=70,r=50,z=100)
     tneed_arr= np.zeros(len(df))-1 
     for band in t0.keys():
         isBand= df['band'] == band
         tneed_arr[isBand]= df['expfactor'][isBand] * t0[band]
-    assert( np.all(tneed_arr > 0))
     return df.assign(tneed= tneed_arr)
 
-  def clean(self,df):
+  def constrain_tneed(self,df):
     """applies cleaning to ylabel"""
-    return df[(df['tneed'] > 10) & \
-              (df['tneed'] < 500)]
+    cut= ((df['tneed'] > 0) &
+          (df['tneed'] < 500))
+    print('Cutting to %d/%d' % (len(df[cut]),len(df)))
+    return df[cut]
  
 
 class Split_TrainTest(object):
@@ -230,20 +250,21 @@ def main():
 
   df= Clean().keep_science_exposures(df)
   df= Clean().add_night_obs(df)
-  df= Clean().seamless_hr_obs(df)
-  raise ValueError('FIX: mjd ordering, seeing notebook')
-  df= Clean().drop_bad_transp(df, thresh=0.9)
-  # TODO: remove duplicated expids b/c have > 1000 exposures on some nights
-  # ALWAYS last step
+  df= Clean().order_by_mjd(df)
+  df= Clean().add_hr_obs(df)
+  #df= Clean().drop_bad_transp(df, thresh=0.9)
   df= Clean().drop_nights_wfew_exposures(df, nexp=20)
+  
+  # TODO: remove duplicated expids b/c have > 1000 exposures on some nights
 
-  df= AddYlabel().use_obsdb_expfactor(df)
-  df= AddYlabel().clean(df) 
+  df= AddYlabel().add_tneed(df)
+  df= AddYlabel().constrain_tneed(df)
 
   df_train,df_test= Split_TrainTest().random_sampling(df)
-  return df_train
+  del df
+  return df_train,df_test
 
 if __name__ == '__main__':
-  df_train = main()
+  df_train,df_test = main()
   
 
