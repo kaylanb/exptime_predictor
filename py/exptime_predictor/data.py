@@ -100,7 +100,18 @@ class Clean(object):
     bands= df.loc[:,'band']
     isGRZ= (bands == 'g') | (bands == 'r') | (bands == 'z') 
     isObject= df.loc[:,'obstype'] == 'object'
-    return df[ isGRZ & isObject ]
+    isScience= df['object'].str.lower().str.contains('decals')
+    longExp= df['exptime'] > 30
+    print('isGRZ %d/%d' % (len(df[isGRZ]),len(df)))
+    print('isObject %d/%d' % (len(df[isObject]),len(df)))
+    print('isScience %d/%d' % (len(df[isScience]),len(df)))
+    print('longExp %d/%d' % (len(df[longExp]),len(df)))
+    allCuts= ((isGRZ) & 
+              (isObject) &
+              (isScience) &
+              (longExp))
+    print('allCuts %d/%d' % (len(df[allCuts]),len(df)))
+    return df[allCuts]
    
   def add_night_obs(self,df):
     """assigns integer ymd to each instance
