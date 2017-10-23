@@ -37,6 +37,20 @@ class df2binary(BaseEstimator, TransformerMixin):
 	                  for col in self.cols]
 	    return np.concatenate(list_of_mat,axis=1)
 
+class MyPipelines(object):
+	def num(self,num_cols):
+		"""num_col: list of numerical columns"""
+		return Pipeline([
+	        ('df2array', df2array(num_cols)),
+	        #('imputer', Imputer(strategy="median")),
+	        ('stdize', StandardScaler()),
+	    ])
+
+	def cat(self,cat_cols):
+		"""cat_col: list of categorical columns"""
+		return Pipeline([
+	        ('df2binary', df2binary(cat_cols)),
+	    ])
 
 if __name__ == '__main__':
 	df_train,df_test = data_main()
@@ -53,15 +67,8 @@ if __name__ == '__main__':
 	print('numerical cols= ',num_cols)
 	print('categorical cols= ',categ_cols)
 
-	num_pipeline = Pipeline([
-	        ('df2array', df2array(num_cols)),
-	        #('imputer', Imputer(strategy="median")),
-	        ('stdize', StandardScaler()),
-	    ])
-
-	cat_pipeline = Pipeline([
-	        ('df2binary', df2binary(categ_cols)),
-	    ])
+	num_pipeline = MyPipelines().num(num_cols) 
+	cat_pipeline = MyPipelines().cat(categ_cols) 
 
 	pipe = FeatureUnion(transformer_list=[
 	    ("num_pipeline", num_pipeline),
